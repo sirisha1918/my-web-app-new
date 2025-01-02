@@ -2,66 +2,55 @@ pipeline {
     agent any
  
     environment {
-        DOCKER_IMAGE = "advanced-web-app:1.0"
-        DOCKER_HUB_USER = 'sudheer99123' // Replace with your Docker Hub username
-        DOCKER_HUB_CREDENTIALS = 'Sudheer@docker' // Jenkins credentials ID
+        DOCKER_IMAGE = "sudheer99123/webapp"
+        DOCKER_TAG = "latest"
     }
  
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                echo 'Checking out code from SCM...'
-                checkout scm
+                git branch: 'main', url: 'https://github.com/sirisha1918/my-web-apps-new.git'
             }
         }
  
-        stage('Build Application') {
+        stage('Build Maven Project') {
             steps {
-                echo 'Building the application with Maven...'
-                sh 'mvn clean package'
+                sh 'mvn clean package -DskipTests'
             }
         }
  
         stage('Build Docker Image') {
             steps {
-                echo 'Building Docker image...'
-                sh "docker build -t ${DOCKER_IMAGE} ."
-            }
-        }
- 
-        stage('Test Docker Image') {
-            steps {
-                echo 'Testing the Docker container...'
-                sh "docker run -d -p 8080:8080 --name test-container ${DOCKER_IMAGE}"
-                // Optionally add HTTP-based testing here
-                sh "docker stop test-container && docker rm test-container"
-            }
-        }
- 
-        stage('Push Docker Image to Registry') {
-            steps {
-                echo 'Pushing Docker image to Docker Hub...'
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_HUB_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
-                    sh "docker tag ${DOCKER_IMAGE} ${DOCKER_HUB_USER}/${DOCKER_IMAGE}"
-                    sh "docker push ${DOCKER_HUB_USER}/${DOCKER_IMAGE}"
+                script {
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
                 }
             }
         }
  
-        stage('Deploy Application') {
+        stage('Push Docker Image') {
             steps {
-                echo 'Deploying application using Docker...'
-                sh "docker run -d -p 8080:8080 ${DOCKER_HUB_USER}/${DOCKER_IMAGE}"
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', 'docker-hub-credentials') {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                    }
+                }
             }
         }
-    }
  
-    post {
-        always {
-            echo 'Cleaning up Docker containers and images...'
-            sh "docker rm -f $(docker ps -aq) || true"
-            sh "docker rmi $(docker images -q) || true"
+        stage('Deploy Docker Container') {
+            steps {
+                sh '''
+                    docker stop webapp || true
+                    docker rm webapp || true
+                    docker run -d -p 8081:8081 --name webapp ${DOCKER_IMAGE}:${DOCKER_TAG}
+                '''
+            }
+        }
+ 
+        stage('Cleanup Workspace') {
+            steps {
+                sh 'rm -rf *'
+            }
         }
     }
 }
